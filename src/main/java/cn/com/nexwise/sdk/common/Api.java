@@ -1,6 +1,7 @@
 package cn.com.nexwise.sdk.common;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -8,9 +9,15 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.PriorityQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import javax.servlet.http.HttpServletRequest;
 
 import com.alibaba.fastjson.JSON;
 
@@ -24,39 +31,34 @@ import okhttp3.Response;
 
 public class Api {
 	
-    AbstractTask action;
+	private static final SimpleLogger logger = new SimpleLogger(Api.class);
+	
+    AbstractTask task;
     
     RestInfo info;
     
     Completion completion;
-    
-    String jobUuid = UUID.randomUUID().toString().replaceAll("-", "");
-    
-    private TaskResult resultFromWebHook;
+        
+    private ApiResult resultFromWebHook;
     
     private String signUri;
     
-    Api(AbstractTask action) {
-      this.action = action;
-      this.info = action.getRestInfo();
+    String taskId;
+    
+    private final static PollThread pollThread;
+    
+    private static ConcurrentHashMap<String, Api> waitWebHookMap = new ConcurrentHashMap<>();
+    
+    static {
+    	pollThread = new PollThread();
+    	pollThread.setDaemon(true);
+    	pollThread.start();
     }
     
-//    void wakeUpFromWebHook(TaskResult res) {
-//      if (this.completion == null) {
-//        this.resultFromWebHook = res;
-//        synchronized (this) {
-//          notifyAll();
-//        } 
-//      } else {
-//    	  TaskResultWrapper wrapper = new TaskResultWrapper();
-//        try {
-//          this.completion.complete(wrapper);
-//        } catch (Throwable t) {
-//          res = new TaskResultWrapper();
-//          this.completion.complete(wrapper);
-//        } 
-//      } 
-//    }
+    Api(AbstractTask task) {
+      this.task = task;
+      this.info = task.getRestInfo();
+    }
     
     private String substituteUrl(String url, Map<String, Object> tokens) {
       Pattern pattern = Pattern.compile("\\{(.+?)\\}");
@@ -83,27 +85,27 @@ public class Api {
       return urlVars;
     }
     
-    void call(Completion completion) {
-      this.completion = completion;
-      doCall();
+    ApiResult call() {
+        return doCall(true);
     }
     
-    ApiResult doCall() {
-      this.action.checkParameters();
+    void call(Completion completion) {
+      this.completion = completion;
+      doCall(false);
+    }
+    
+    ApiResult doCall(boolean wait) {
+      this.task.checkParameters();
       Request.Builder reqBuilder = new Request.Builder();
 //      if (this.action.apiTimeout != null)
 //        reqBuilder.addHeader("X-API-Timeout", this.action.apiTimeout.toString()); 
-      String webCallback = action.getRestInfo().getWebCallback();
-      if(webCallback==null) {
-    	  webCallback = ZSClient.getConfig().webCallback;
-      }
+
+      String webCallback = getWebCallback();
       if (webCallback != null) {
-    	  reqBuilder.addHeader(Constants.HEADER_WEB_CALLBACK, ZSClient.getConfig().webCallback); 
+    	  logger.debug("find web callback url: {}",webCallback);
+    	  reqBuilder.addHeader(Constants.HEADER_WEB_CALLBACK, webCallback); 
       }
       try {
-        if (this.action instanceof QueryTask) {
-          info.setAsync(false);
-        } 
         
         HttpUrl.Builder urlBuilder = fillCommonParams(reqBuilder);
         fillApiPathParams(urlBuilder);
@@ -111,66 +113,146 @@ public class Api {
         fillApiQueryParams(reqBuilder,urlBuilder);
         fillApiBodyParams(reqBuilder);
         reqBuilder.url(urlBuilder.build());
-        
       } catch (Exception e) {
         throw new ApiException(e);
       } 
       Request request = reqBuilder.build();
       try {
     	  ApiResult apiRet = null;
-        try (Response response = ZSClient.http.newCall(request).execute()) {
-          if (!response.isSuccessful())
-        	  apiRet = httpError(response.code(), response.body().string()); 
-          if (response.code() == 200) {
-        	  apiRet = writeApiResult(response); 
+    	  logger.debug("requset api {} params {}",info.getPath(),task.parameterMap);
+        try (Response response = ApiClient.http.newCall(request).execute()) {
+        	int code = response.code();
+        	String body = response.body().string();
+        	logger.debug("api server return code: {} body: {}",code,body);
+          if (!response.isSuccessful()) {
+        	  apiRet = httpError(code, body); 
+          }else {
+        	  taskId = response.header(Constants.HEADER_TASK_UUID);
+        	  logger.info("polling task id: {}",taskId);
+          }
+          if (code == 200) {
+        	  if(task instanceof QueryTask<?>) {
+        		  apiRet = writeApiResult(code,body); 
+        	  }else {
+        		  apiRet = doPollOrWebCallbakProcess(wait,webCallback,response);
+        	  }
           } else {
-        	  throw new ApiException(Constants.HTTP_ERROR);
+        	  throw new ApiException(Constants.HTTP_ERROR+ " server status code: " + code);
           }
         } 
-        if(!info.isAsync() && this.completion!=null) {
-        	this.completion.complete(apiRet);
-        }
         return apiRet;
       } catch (IOException e) {
         throw new ApiException(e);
       } 
     }
+    
+    private TaskResult doPollOrWebCallbakProcess(boolean wait, String webCallback,Response response) throws IOException {
+    	if(webCallback == null) {
+    		return (TaskResult) pollResult(wait,response);
+    	}else {
+    		if(taskId!=null) {
+    			waitWebHookMap.put(taskId, this);
+    		}
+    		if(wait) {
+    			return (TaskResult) webHookResult();
+    		}else {
+    			return null;
+    		}
+    	}
+    }
 
 
-//	private ApiResult syncWebHookResult() {
-//      synchronized (this) {
-//        long timeout = getTimeout();
-//        try {
-//          wait(timeout);
-//        } catch (InterruptedException e) {
-//          throw new ApiException(e);
-//        } 
-//        if (this.resultFromWebHook == null) {
-//          this.resultFromWebHook = new ApiResult();
-//          this.resultFromWebHook.error = errorCode("sdk.1001", "timeout of polling webhook result", 
-//              
-//              String.format("polling result of api[%s] timeout after %s ms", new Object[] { this.action.getClass().getSimpleName(), Long.valueOf(timeout) }));
-//        } 
-//        ZSClient.waittingApis.remove(this.jobUuid);
-//        return this.resultFromWebHook;
-//      } 
-//    }
+	private ApiResult webHookResult() {
+      synchronized (this) {
+        long timeout = getTimeout();
+        try {
+          wait(timeout);
+        } catch (InterruptedException e) {
+          throw new ApiException(e);
+        } 
+        if (this.resultFromWebHook == null) {
+          this.resultFromWebHook = new ApiResult();
+          
+          this.resultFromWebHook.setCode(ReturnCode.ERROR);
+          String msg = String.format("waiting webhook result of api [%s] timeout after %s ms", 
+        		  task.getClass().getSimpleName(), Long.valueOf(timeout));
+          this.resultFromWebHook.setMsg(msg);
+        } 
+        return this.resultFromWebHook;
+      } 
+    }
     
-//    private ApiResult webHookResult() {
-//      if (this.completion == null)
-//        return syncWebHookResult(); 
-//      return null;
-//    }
+	/**
+	 * 由第三方应用在收到web推送消息的时候主动调用
+	 */
+    public static void onWebHookResult(HttpServletRequest request) {
+    	logger.debug("onWebHookResult called");
+    	String taskId = request.getHeader(Constants.HEADER_TASK_UUID);
+    	if(taskId==null) {
+    		//do nothing
+    	}
+    	taskId = taskId.trim();
+    	logger.debug("onWebHookResult called for taskId {}",taskId);
+    	Api api = waitWebHookMap.remove(taskId);
+    	if(api==null) {
+    		return;
+    	}
+    	
+    	ApiResult result = null;
+    	try {
+    		InputStream in = request.getInputStream();
+    		byte[] bs = new byte[1024];
+    		int len = 0;
+    		int size = 0;
+    		byte[] allBuf = new byte[0];
+    		while((len = in.read(bs)) != -1) {
+    			if(len>0) {
+    				size += len;
+    				byte[] buf = new byte[size];
+    				if(allBuf.length>0) {
+    					System.arraycopy(allBuf, 0, buf, 0, allBuf.length);
+    				}
+    				System.arraycopy(bs, 0, buf, allBuf.length, len);
+    				allBuf = buf;
+    			}
+    		}
+    		String body = new String(allBuf,"utf-8");
+    		result = JSON.parseObject(body,TaskResult.class);
+    	}catch (Exception e) {
+    		result = new ApiResult();
+    	    result.setCode(ReturnCode.ERROR);
+    	    result.setMsg(Constants.READ_RESULT_FROM_WEBHOOK_ERROR);
+		}
+    	
+    	api.wakeUpFromWebHook(result);
+    }
     
     
+  void wakeUpFromWebHook(ApiResult res) {
+	  if (this.completion == null) {
+	    this.resultFromWebHook = res;
+	    synchronized (this) {
+	      notifyAll();
+	    } 
+	  } else {
+	    try {
+	      this.completion.complete(res);
+	    } catch (Throwable t) {
+	      res = new ApiResult();
+	      res.setCode(ReturnCode.ERROR);
+	      res.setMsg(Constants.COMPLETE_EXECUTE_ERROR);
+	      this.completion.complete(res);
+	    } 
+	  } 
+  }
     
     private HttpUrl.Builder fillCommonParams(Request.Builder reqBuilder) {
     	HttpUrl.Builder builder = (new HttpUrl.Builder())
-      		  .scheme("http")
-      		  .host(ZSClient.getConfig().hostname)
-      		  .port(ZSClient.getConfig().port);
-        if (ZSClient.getConfig().prefix != null)
-          builder.addPathSegments(ZSClient.getConfig().prefix);
+      		  .scheme(ApiClient.getConfig().scheme)
+      		  .host(ApiClient.getConfig().hostname)
+      		  .port(ApiClient.getConfig().port);
+        if (ApiClient.getConfig().prefix != null)
+          builder.addPathSegments(ApiClient.getConfig().prefix);
         return builder;
 	}
     
@@ -180,7 +262,7 @@ public class Api {
         if (!varNames.isEmpty()) {
           Map<String, Object> vars = new HashMap<>();
           for (String vname : varNames) {
-            Object value = this.action.getParameterValue(vname);
+            Object value = this.task.getParameterValue(vname);
             if (value == null)
               throw new ApiException(String.format("missing required field [%s]",vname)); 
             vars.put(vname, value);
@@ -191,22 +273,37 @@ public class Api {
         builder.addPathSegments(path.replaceFirst("/", ""));
 	}
     
-    private void fillApiHeaderParams(Request.Builder reqBuilder) 
-    		throws NoSuchAlgorithmException, UnsupportedEncodingException {
-    	String accessToken = (String) action.getParameterValue("accessToken",false);
-    	String accessKeySecret = (String) action.getParameterValue("accessKeySecret"); 
+    private void fillApiHeaderParams(Request.Builder reqBuilder) {
+    	String accessToken = (String) task.getParameterValue("accessToken",false);
+    	reqBuilder.addHeader(Constants.HEADER_ACCESS_TOKEN_AUTH, accessToken+ ":" 
+    			+ createAccessTokenSign(task.getRestInfo().getHttpMethod(),signUri));
+    }
+    
+    void fillPollingApiHeaderParams(Request.Builder reqBuilder) {
+    	String accessToken = (String) task.getParameterValue("accessToken",false);
+    	reqBuilder.addHeader(Constants.HEADER_ACCESS_TOKEN_AUTH, accessToken+ ":" + createAccessTokenSign("GET",signUri));
+    }
+    
+    private String createAccessTokenSign(String method,String uri) {
+    	String accessToken = (String) task.getParameterValue("accessToken",false);
+    	String accessKeySecret = (String) task.getParameterValue("accessKeySecret"); 
     	if (accessToken != null && accessKeySecret != null) {
-    		String sign = Sha1Utils.getBase64Sha(accessKeySecret 
-    				+ action.getRestInfo().getHttpMethod().toUpperCase() 
-    				+ signUri);
-    		reqBuilder.addHeader(Constants.HEADER_ACCESS_TOKEN_AUTH, accessToken+ ":" + sign);
+    		try {
+    			String sign = Sha1Utils.getBase64Sha(accessKeySecret 
+    					+ method.toUpperCase() 
+    					+ uri);
+    			return sign;
+    		}catch (Exception e) {
+				throw new ApiException(Constants.INTERNAL_ERROR,e);
+			}
         } 
+    	return null;
     }
     
     private void fillApiQueryParams(Request.Builder reqBuilder,HttpUrl.Builder urlBuilder) 
     		throws NoSuchAlgorithmException, UnsupportedEncodingException {
     	
-    	Map<String,Object> ps= action.getAllQueryParameterValues();
+    	Map<String,Object> ps= task.getAllQueryParameterValues();
     	ps.forEach((name,val)->{
     		if(!name.equalsIgnoreCase("accessKeySecret")) {
     			if(val instanceof Collection) {
@@ -220,8 +317,8 @@ public class Api {
     		}
     	});
     	
-    	String accessKeyId = (String) action.getParameterValue("accessKeyId",false);
-    	String accessKeySecret = (String) action.getParameterValue("accessKeySecret");
+    	String accessKeyId = (String) task.getParameterValue("accessKeyId",false);
+    	String accessKeySecret = (String) task.getParameterValue("accessKeySecret");
     	if (accessKeyId != null && accessKeySecret != null) {
     		String str = Sha1Utils.getBase64Sha(accessKeyId + accessKeySecret);
     		urlBuilder.addQueryParameter("signature",str);
@@ -231,7 +328,7 @@ public class Api {
     private void fillApiBodyParams(Request.Builder reqBuilder) throws Exception {
       // form参数
     	
-    	Map<String,Object> map = action.getAllFormParameterValues();
+    	Map<String,Object> map = task.getAllFormParameterValues();
     	if(!map.isEmpty()) {
     		FormBody.Builder formBodyBuilder = new FormBody.Builder();
     		map.forEach((name,val)->{
@@ -247,7 +344,7 @@ public class Api {
     		reqBuilder.method(this.info.getHttpMethod(), 
     				formBodyBuilder.build());
     	}else {
-    		map = action.getAllBodyParameterValues();
+    		map = task.getAllBodyParameterValues();
     		if(!map.isEmpty()) {
     			reqBuilder.method(this.info.getHttpMethod(), 
     					RequestBody.create(Constants.JSON, JSON.toJSONString(map)));
@@ -256,138 +353,174 @@ public class Api {
     	
     }
     
-//    private ApiResult pollResult(Response response) throws IOException {
-//      if (!this.info.isNeedPoll())
-//        throw new ApiException(String.format("[Internal Error] the api[%s] is not an async API but the server returns 201 status code", new Object[] { this.action
-//                .getClass().getSimpleName() })); 
-//      Map body = (Map)ZSClient.gson.fromJson(response.body().string(), LinkedHashMap.class);
-//      String pollingUrl = (String)body.get("location");
-//      if (pollingUrl == null)
-//        throw new ApiException(String.format("Internal Error] the api[%s] is an async API but the server doesn't return the polling location url", new Object[] { this.action
-//                .getClass().getSimpleName() })); 
-////      String configHost = String.format("%s:%s", new Object[] { ZSClient.access$000().getHostname(), Integer.valueOf(ZSClient.access$000().getPort()) });
-//      String configHost = null;
-//      if (!pollingUrl.contains(configHost)) {
-//        String splitRegex = "/zstack/v1/api-jobs";
-//        pollingUrl = String.format("http://%s%s%s", new Object[] { configHost, splitRegex, pollingUrl.split(splitRegex)[1] });
-//      } 
-//      if (this.completion == null)
-//        return syncPollResult(pollingUrl); 
-//      asyncPollResult(pollingUrl);
-//      return null;
-//    }
+    private ApiResult pollResult(boolean wait, Response response) throws IOException {
+ 
+    	String pollingUrl = response.header(Constants.HEADER_TASK_POLL_URL);
+    	if (pollingUrl == null) {
+    		throw new ApiException(String.format("api [%s] is an async API but the server doesn't return the polling url", 
+    				this.task.getClass().getSimpleName() )); 
+    	}
+    	signUri = pollingUrl;
+    	pollingUrl = pollingUrl.startsWith("/") ? 
+    			pollingUrl.replaceFirst("/", ""):pollingUrl;
+    	
+    	HttpUrl.Builder builder = (new HttpUrl.Builder())
+    			.scheme(ApiClient.getConfig().scheme)
+    			.host(ApiClient.getConfig().hostname)
+    			.port(ApiClient.getConfig().port);
+    	String prefix = ApiClient.getConfig().prefix;
+        if (prefix != null && !prefix.isEmpty()) {
+        	builder.addPathSegments(prefix);
+        }
+        builder.addPathSegments(pollingUrl);
+        pollingUrl = builder.build().toString();
+        if (wait) {
+        	return syncPollResult(pollingUrl); 
+        }else if(this.completion!=null){
+        	asyncPollResult(pollingUrl);
+        }
+        return null;
+    }
     
-//    private void asyncPollResult(final String url) {
-//      final long current = System.currentTimeMillis();
-//      final long timeout = getTimeout();
-//      final long expiredTime = current + timeout;
-//      final long i = getInterval();
-//      final Object sessionId = this.action.getParameterValue("sessionId");
-//      final Object requestIp = this.action.getParameterValue("requestIp");
-//      final Timer timer = new Timer();
-//      timer.schedule(new TimerTask() {
-//            long count = current;
-//            
-//            long interval = i;
-//            
-//            private void done(ApiResult res) {
-//              ZSClient.Api.this.completion.complete(res);
-//              timer.cancel();
-//            }
-//            
-//            public void run() {
-//              Request.Builder builder = (new Request.Builder()).url(url).addHeader("Authorization", String.format("%s %s", new Object[] { "OAuth",null })).addHeader("X-JSON-Schema", Boolean.TRUE.toString()).get();
-//              if (requestIp != null)
-//                builder.addHeader("X-Request-Ip", String.valueOf(requestIp)); 
-//              Request req = builder.build();
-//              try (Response response = ZSClient.http.newCall(req).execute()) {
-//                if (response.code() != 200 && response.code() != 503 && response.code() != 202) {
-//                  done(ZSClient.Api.this.httpError(response.code(), response.body().string()));
-//                  return;
-//                } 
-//                if (response.code() == 200 || response.code() == 503) {
-//                  done(ZSClient.Api.this.writeApiResult(response));
-//                  return;
-//                } 
-//                this.count += this.interval;
-//                if (this.count >= expiredTime) {
-//                  ApiResult res = new ApiResult();
-//                  res.error = ZSClient.Api.this.errorCode("sdk.1001", "timeout of async polling API result", 
-//                      
-//                      String.format("polling result of api[%s] timeout after %s ms", new Object[] { this.getClass().getSimpleName(), Long.valueOf(0L) }));
-//                  done(res);
-//                } 
-//              } catch (Throwable e) {
-//                ApiResult res = new ApiResult();
-//                res.error = ZSClient.Api.this.errorCode("sdk.1002", "an internal error happened", e
-//                    
-//                    .getMessage());
-//                done(res);
-//              } 
-//            }
-//          },0L, i);
-//    }
+    private void asyncPollResult(final String url) {
+      final long timeout = getTimeout();
+      final long timeInterval = getPollInterval();
+      
+      ApiPollCallback callback = new ApiPollCallback(this,url,timeInterval,timeout);
+      pollThread.addPoll(callback);
+    }
     
-//    private ApiResult syncPollResult(String url) {
-//      long current = System.currentTimeMillis();
-//      long timeout = getTimeout();
-//      long expiredTime = current + timeout;
-//      long interval = getPollInterval();
-//      Object sessionId = this.action.getParameterValue("sessionId");
-//      Object requestIp = this.action.getParameterValue("requestIp");
-//      while (current < expiredTime) {
-//        Request.Builder builder = (new Request.Builder()).url(url).addHeader("Authorization", String.format("%s %s", new Object[] { "OAuth", sessionId })).addHeader("X-JSON-Schema", Boolean.TRUE.toString()).get();
-//        if (requestIp != null)
-//          builder.addHeader("X-Request-Ip", String.valueOf(requestIp)); 
-//        Request req = builder.build();
-//        try (Response response = ZSClient.http.newCall(req).execute()) {
-//          if (response.code() != 200 && response.code() != 503 && response.code() != 202)
-//            return httpError(response.code(), response.body().string()); 
-//          if (response.code() == 200 || response.code() == 503)
-//            return writeApiResult(response); 
-//          TimeUnit.MILLISECONDS.sleep(interval);
-//          current += interval;
-//        } catch (InterruptedException interruptedException) {
-//        
-//        } catch (IOException e) {
-//          throw new ApiException(e);
-//        } 
-//      } 
-//      ApiResult res = new ApiResult();
-//      res.error = errorCode("sdk.1001", "timeout of sync polling API result", 
-//          
-//          String.format("polling result of api[%s] timeout after %s ms", new Object[] { this.action.getClass().getSimpleName(), Long.valueOf(timeout) }));
-//      return res;
-//    }
+    private ApiResult syncPollResult(String url) {
+      long current = System.currentTimeMillis();
+      long timeout = getTimeout();
+      long expiredTime = current + timeout;
+      long interval = getPollInterval();
+      
+      while (current < expiredTime) {
+    	 
+    	logger.info("polling start for api {} taskId {} {}",
+    			info.path,taskId,System.currentTimeMillis());
+		Request.Builder builder = (new Request.Builder())
+				.url(url);
+		fillPollingApiHeaderParams(builder);
+		Request req = builder.build();
+		try (Response response = ApiClient.http.newCall(req).execute()) {
+		  if (response.code() != 200) {
+			  return httpError(response.code(), response.body().string()); 
+		  }else {
+			  AsyncTask asyncTask = (AsyncTask)task;
+			  TaskResult res = asyncTask.translateResult(response.body().string());
+			  if(!res.checkSuccess()) {
+				  throw new ApiException(String.format(" %s code: [%s], msg [%s]", 
+						  Constants.POLLING_RETURN_ERROR,res.getCode(),res.getMsg()));
+			  }
+			  if(res.checkCompleted()) {
+				  return res;
+			  }
+		  }
+		  TimeUnit.MILLISECONDS.sleep(interval);
+		  current += interval;
+		} catch (Exception e) {
+			throw new ApiException(e);
+		} 
+      } 
+      throw new ApiException(Constants.POLLING_TIMEOUT_ERROR); 
+    }
     
-    private ApiResult writeApiResult(Response response) throws IOException {
+    ApiResult writeApiResult(int code,String body) throws IOException {
       ApiResult res = new ApiResult();
-      if (response.code() == 200) {
-        res = action.translateResult(response.body().string());
+      if (code == 200) {
+        res = task.translateResult(body);
       } else {
-        throw new ApiException(String.format("error status code: %s", Integer.valueOf(response.code())));
+        throw new ApiException(String.format("error status code: %s", Integer.valueOf(code)));
       } 
       return res;
     }
     
-    private ApiResult httpError(int code, String details) {
+    ApiResult httpError(int code, String details) {
       ApiResult res = new ApiResult();
       res.setCode(ReturnCode.ERROR);
       res.setMsg(String.format("http response status code [%s] error, content [%s]", Integer.valueOf(code), details));
       return res;
     }
     
-    ApiResult call() {
-      return doCall();
-    }
-    
     private long getTimeout() {
       long timeout = this.info.getTimeout();
-      return (timeout >= 0L) ? ZSClient.getConfig().defaultPollingTimeout : timeout;
+      return (timeout >= 0L) ? ApiClient.getConfig().defaultPollingTimeout : timeout;
     }
     
     private long getPollInterval() {
       long pollInterval = this.info.getPollInterval();
-      return (pollInterval >= 0L) ? ZSClient.getConfig().defaultPollingInterval : pollInterval;
+      return (pollInterval >= 0L) ? ApiClient.getConfig().defaultPollingInterval : pollInterval;
+    }
+    
+    private String getWebCallback() {
+        String webCallback = this.info.getWebCallback();
+        if(webCallback == null) {
+      	  webCallback = ApiClient.getConfig().webCallback;
+        }
+        if(webCallback != null) {
+        	webCallback = webCallback.trim();
+        }
+        return webCallback;
+    }
+    
+    private static class PollThread extends Thread {
+
+        volatile boolean runFlag = true;
+        protected long scanInterval = 1000L;
+
+        private PriorityQueue<ApiPollCallback> queus = new PriorityQueue<>();
+
+        private ExecutorService executor;
+
+        PollThread() {
+            super("poll-thread");
+            int minsize = 4;
+            int coreSize = Runtime.getRuntime().availableProcessors();
+    		if (coreSize > minsize) {
+    			coreSize--;
+    		}else {
+    			coreSize = minsize;
+    		}
+            executor = Executors.newFixedThreadPool(minsize);
+        }
+        
+        public synchronized void addPoll(ApiPollCallback callback) {
+        	if(!queus.contains(callback)) {
+        		queus.add(callback);
+        	}
+        }
+
+        @Override
+        public void run() {
+            while (runFlag) {
+                try {
+                    // 从队列中找出一个可以执行的任务，delay已经小于0的
+                	ApiPollCallback poll = queus.poll();
+                    if (poll != null && !poll.isCompleted()) {
+                        long delay = poll.getDelay();
+                        if (delay >= 0) {
+                        	executor.submit(poll);
+                            this.addPoll(poll);
+                        }
+                    }
+                    Thread.sleep(scanInterval);
+
+                } catch (InterruptedException e) {
+                    Thread.interrupted();
+                    if (!runFlag) {
+                        break;
+                    }
+                } catch (Throwable t) {
+                    //ignore
+                }
+
+            }
+        }
+
+        public void shutdown() {
+            runFlag = false;
+        }
     }
   }

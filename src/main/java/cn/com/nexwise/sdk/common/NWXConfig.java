@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit;
 public class NWXConfig {
 	
 	
+	boolean showLog;
+	
 	String scheme = "http";
 
 	/**
@@ -35,12 +37,12 @@ public class NWXConfig {
   /**
    * http client read 超时
    */
-  Long readTimeout;
+  Long readTimeout = 15 * 1000L;
   
   /**
    * http client write 超时
    */
-  Long writeTimeout;
+  Long writeTimeout = 15 * 1000L;
   
   /**
    * 访问api的前缀
@@ -65,6 +67,11 @@ public class NWXConfig {
   
   public static class Builder {
   	NWXConfig config = new NWXConfig();
+  	
+    public Builder setShowLog(boolean showLog) {
+        this.config.showLog = showLog;
+        return this;
+      }
   	
     public Builder setScheme(String scheme) {
         this.config.scheme = scheme;

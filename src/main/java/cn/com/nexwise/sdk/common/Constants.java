@@ -8,11 +8,17 @@ public interface Constants {
 	  
 	public static final String PARAMS_ERROR = "sdk.params.valid.error";
 	
-	public static final String HTTP_ERROR = "sdk.params.valid.error";
+	public static final String HTTP_ERROR = "sdk.http.error";
 	  
 	public static final String POLLING_TIMEOUT_ERROR = "sdk.polling.timeout";
+	
+	public static final String POLLING_RETURN_ERROR = "sdk.polling.return.error";
 	  
 	public static final String INTERNAL_ERROR = "sdk.internal.error";
+	
+	public static final String COMPLETE_EXECUTE_ERROR = "sdk.complete.execute.error";
+	
+	public static final String READ_RESULT_FROM_WEBHOOK_ERROR = "sdk.read.result.from.webhook.error";
 	  
     /**
      * 使用access token 请求接口的认证头部

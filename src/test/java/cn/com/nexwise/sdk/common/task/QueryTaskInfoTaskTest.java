@@ -4,11 +4,11 @@ import org.junit.Test;
 
 import com.alibaba.fastjson.JSON;
 
-import cn.com.nexwise.sdk.common.AbstractTaskTest;
+import cn.com.nexwise.sdk.common.BaseApiTest;
 import cn.com.nexwise.sdk.common.dto.QueryTaskInfoReq;
 import cn.com.nexwise.sdk.common.dto.TaskResult;
 
-public class QueryTaskInfoTaskTest extends AbstractTaskTest {
+public class QueryTaskInfoTaskTest extends BaseApiTest {
 	
 	@Test
 	public void test() {
@@ -17,7 +17,7 @@ public class QueryTaskInfoTaskTest extends AbstractTaskTest {
 		req.setAccessKeySecret(accessKeySecret);
 		req.setId("cb73f60bf0dd4b1bab3e56c58f998c77");
 		QueryTaskInfoTask task = new QueryTaskInfoTask(req);
-		TaskResult res = task.call();
+		TaskResult res = task.query();
 		System.out.println(JSON.toJSONString(res));
 	}
 

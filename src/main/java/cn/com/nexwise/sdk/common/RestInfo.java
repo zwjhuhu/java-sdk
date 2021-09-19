@@ -2,30 +2,28 @@ package cn.com.nexwise.sdk.common;
 
 public class RestInfo {
 	
-	private String httpMethod;
+	protected String httpMethod;
 	
 	/**
 	 * 路径不包含代理的前缀
 	 */
-	private String path;
+	protected String path;
+	  	
+	/**
+	 * 可以覆盖默认配置
+	 */
+	protected long timeout;
 	  
-	private boolean async = true;
+	  
+	/**
+	 * 可以覆盖默认配置
+	 */
+	protected long pollInterval;
 	
 	/**
 	 * 可以覆盖默认配置
 	 */
-	private long timeout;
-	  
-	  
-	/**
-	 * 可以覆盖默认配置
-	 */
-	private long pollInterval;
-	
-	/**
-	 * 可以覆盖默认配置
-	 */
-	private String webCallback;
+	protected String webCallback;
 
 	public String getHttpMethod() {
 		return httpMethod;
@@ -41,14 +39,6 @@ public class RestInfo {
 
 	public void setPath(String path) {
 		this.path = path;
-	}
-
-	public boolean isAsync() {
-		return async;
-	}
-
-	public void setAsync(boolean async) {
-		this.async = async;
 	}
 
 	public long getTimeout() {
@@ -74,7 +64,4 @@ public class RestInfo {
 	public void setWebCallback(String webCallback) {
 		this.webCallback = webCallback;
 	}
-	
-	
-	
 }

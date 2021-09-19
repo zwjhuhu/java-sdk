@@ -93,9 +93,13 @@ public final class ParameterChecker {
 	}
 	
 	private static void checkCollectionParam(String name,Collection<?> value, Param at) {
-		if(value.isEmpty() && !at.notEmpty()) {
-			throw new ApiException(String.format("filed [%s] not allow empty", 
-            		name)); 
+		if(value.isEmpty()) {
+			if(at.notEmpty()) {
+				throw new ApiException(String.format("filed [%s] not allow empty", 
+						name)); 
+			}else {
+				return;
+			}
 		}
         if (at.maxLength() > 0 && value.size() > at.maxLength()) {
             throw new ApiException(String.format("filed [%s] exceeds the max length [%s]", 

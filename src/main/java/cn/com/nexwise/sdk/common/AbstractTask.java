@@ -142,6 +142,5 @@ public abstract class AbstractTask {
 	   * @param str
 	   */
 	protected abstract ApiResult translateResult(String str);
-
-	  
+	
 }

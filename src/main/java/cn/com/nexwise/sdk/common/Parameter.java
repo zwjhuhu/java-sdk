@@ -47,5 +47,11 @@ public class Parameter {
 
 	public void setType(String type) {
 		this.type = type;
+	}
+
+	@Override
+	public String toString() {
+		return "Parameter [value=" + value + ", name=" + name + ", type=" + type + "]";
 	}   
+	
 }

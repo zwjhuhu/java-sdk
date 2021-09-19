@@ -138,9 +138,12 @@ public class TaskResult extends ApiResult {
 		return returnResult;
 	}
 
-
 	public void setReturnResult(String returnResult) {
 		this.returnResult = returnResult;
+	}
+	
+	public boolean checkCompleted() {
+		return checkSuccess() && actionResult != 2;
 	}
 	
 }
