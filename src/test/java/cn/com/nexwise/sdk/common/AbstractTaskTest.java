@@ -12,8 +12,8 @@ public class AbstractTaskTest {
         ApiClient.configure(
                 new NWXConfig.Builder()
                 		.setShowLog(true)
-                        .setHostname("www.zwjhuhu.top")
-                        .setPort(8091)
+                        .setHostname("192.168.20.31")
+                        .setPort(38080)
                         .build()
         );
 	}

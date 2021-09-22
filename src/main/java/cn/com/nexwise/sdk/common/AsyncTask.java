@@ -35,27 +35,27 @@ public abstract class AsyncTask extends AbstractTask {
 	}
 	
 	public long getTimeout() {
-		return getRestInfo().getTimeout();
+		return restInfo.getTimeout();
 	}
 
 	public void setTimeout(long timeout) {
-		this.getRestInfo().timeout = timeout;
+		this.restInfo.timeout = timeout;
 	}
 
 	public long getPollInterval() {
-		return getRestInfo().pollInterval;
+		return restInfo.pollInterval;
 	}
 
 	public void setPollInterval(long pollInterval) {
-		this.getRestInfo().pollInterval = pollInterval;
+		this.restInfo.pollInterval = pollInterval;
 	}
 
 	public String getWebCallback() {
-		return getRestInfo().webCallback;
+		return restInfo.webCallback;
 	}
 
 	public void setWebCallback(String webCallback) {
-		this.getRestInfo().webCallback = webCallback;
+		this.restInfo.webCallback = webCallback;
 	}
 
 }

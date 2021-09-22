@@ -42,7 +42,7 @@ public class AccessTokenTask extends QueryTask<AccessTokenResult>{
 	}
   }
   
-  protected RestInfo getRestInfo() {
+  protected RestInfo initRestInfo() {
     RestInfo info = new RestInfo();
     info.setHttpMethod("GET");
     info.setPath("/accessToken.do");
@@ -53,4 +53,5 @@ public class AccessTokenTask extends QueryTask<AccessTokenResult>{
 	protected ApiResult translateResult(String str) {
 		return JSON.parseObject(str,AccessTokenResult.class);
 	}
+
 }

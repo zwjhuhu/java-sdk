@@ -15,7 +15,7 @@ public class StartVmsTaskTest extends BaseApiTest {
 	
 	private StartVmsTask createTask() {
 		Set<String> ids = new HashSet<>();
-		ids.add("2f07de605cb04e738981be8a040adb44");
+		ids.add("d46d470e5aad4a3085b745c946ca1afc");
 		StartVmsReq req = new StartVmsReq(ids);
 		req.setAccessToken(accessToken);
 		req.setAccessKeySecret(accessKeySecret);

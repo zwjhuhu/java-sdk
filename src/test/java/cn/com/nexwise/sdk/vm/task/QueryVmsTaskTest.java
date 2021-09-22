@@ -7,13 +7,13 @@ import com.alibaba.fastjson.JSON;
 import cn.com.nexwise.sdk.common.BaseApiTest;
 import cn.com.nexwise.sdk.common.dto.PagingDataWrapper;
 import cn.com.nexwise.sdk.vm.dto.QueryVmInfo;
-import cn.com.nexwise.sdk.vm.dto.QueryVmReq;
+import cn.com.nexwise.sdk.vm.dto.QueryVmsReq;
 
 public class QueryVmsTaskTest extends BaseApiTest {
 	
 	@Test
 	public void test() {
-		QueryVmReq req = new QueryVmReq();
+		QueryVmsReq req = new QueryVmsReq();
 		req.setAccessToken(accessToken);
 		req.setAccessKeySecret(accessKeySecret);
 		req.setLimit(1);

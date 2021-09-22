@@ -9,7 +9,7 @@ import cn.com.nexwise.sdk.common.task.AccessTokenTask;
 public class BaseApiTest extends AbstractTaskTest {
 	
 
-	protected static String accessToken = "t6oJoCwJrQj7zAXrdljZ7fhnJRI=";
+	protected static String accessToken;
 	
 	protected static final String accessKeyId = "MzQwMjVlMWQ2Mzg3NGVi";
 	

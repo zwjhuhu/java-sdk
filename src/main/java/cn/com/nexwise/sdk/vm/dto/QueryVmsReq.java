@@ -4,7 +4,7 @@ import cn.com.nexwise.sdk.common.Param;
 import cn.com.nexwise.sdk.common.Parameter;
 import cn.com.nexwise.sdk.common.dto.ApiRequest;
 
-public class QueryVmReq extends ApiRequest {
+public class QueryVmsReq extends ApiRequest {
 	
 	@Param(paramType = Parameter.TYPE_QUERY,required = true,validValues = {"asc","desc"},
 		description = "排序顺序")

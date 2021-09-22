@@ -57,7 +57,7 @@ public class Api {
     
     Api(AbstractTask task) {
       this.task = task;
-      this.info = task.getRestInfo();
+      this.info = task.restInfo;
     }
     
     private String substituteUrl(String url, Map<String, Object> tokens) {
@@ -190,6 +190,7 @@ public class Api {
     	String taskId = request.getHeader(Constants.HEADER_TASK_UUID);
     	if(taskId==null) {
     		//do nothing
+    		return;
     	}
     	taskId = taskId.trim();
     	logger.debug("onWebHookResult called for taskId {}",taskId);
@@ -276,7 +277,7 @@ public class Api {
     private void fillApiHeaderParams(Request.Builder reqBuilder) {
     	String accessToken = (String) task.getParameterValue("accessToken",false);
     	reqBuilder.addHeader(Constants.HEADER_ACCESS_TOKEN_AUTH, accessToken+ ":" 
-    			+ createAccessTokenSign(task.getRestInfo().getHttpMethod(),signUri));
+    			+ createAccessTokenSign(task.restInfo.getHttpMethod(),signUri));
     }
     
     void fillPollingApiHeaderParams(Request.Builder reqBuilder) {
@@ -386,6 +387,12 @@ public class Api {
       final long timeout = getTimeout();
       final long timeInterval = getPollInterval();
       
+      // 这里先sleep 一段时间时间，防止后台还没有插入日志记录
+      try {
+		Thread.sleep(10 * 1000L);
+      } catch (InterruptedException e1) {
+		//ignore
+      }
       ApiPollCallback callback = new ApiPollCallback(this,url,timeInterval,timeout);
       pollThread.addPoll(callback);
     }
@@ -395,7 +402,12 @@ public class Api {
       long timeout = getTimeout();
       long expiredTime = current + timeout;
       long interval = getPollInterval();
-      
+      // 这里先sleep 一段时间时间，防止后台还没有插入日志记录
+      try {
+		Thread.sleep(10 * 1000L);
+      } catch (InterruptedException e1) {
+		//ignore
+      }
       while (current < expiredTime) {
     	 
     	logger.info("polling start for api {} taskId {} {}",
@@ -418,8 +430,8 @@ public class Api {
 				  return res;
 			  }
 		  }
-		  TimeUnit.MILLISECONDS.sleep(interval);
 		  current += interval;
+		  TimeUnit.MILLISECONDS.sleep(interval);
 		} catch (Exception e) {
 			throw new ApiException(e);
 		} 

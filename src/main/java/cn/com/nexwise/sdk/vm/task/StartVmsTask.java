@@ -11,7 +11,8 @@ public class StartVmsTask extends AsyncTask {
 		super(req);
 	}
 	  
-	protected RestInfo getRestInfo() {
+	@Override
+	protected RestInfo initRestInfo() {
 		RestInfo info = new RestInfo();
 		info.setHttpMethod("POST");
 		info.setPath("/cloudHost/startVM.do");

@@ -11,13 +11,16 @@ import cn.com.nexwise.sdk.common.dto.ApiRequest;
 import cn.com.nexwise.sdk.common.dto.ApiResult;
 
 public abstract class AbstractTask {
+	
+	protected RestInfo restInfo;
 		  
-	  protected abstract RestInfo getRestInfo();
+	  protected abstract RestInfo initRestInfo();
 	  
 	  protected Map<String, Parameter> parameterMap;
 	  
 	  public AbstractTask(ApiRequest req) {
 		  initializeParameters(req);
+		  restInfo = initRestInfo();
 	  }
 	  	  
 	  private void initializeParameters(ApiRequest req) {

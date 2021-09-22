@@ -2,8 +2,7 @@ package cn.com.nexwise.sdk.common;
 
 import java.util.concurrent.TimeUnit;
 
-public class NWXConfig {
-	
+public class NWXConfig {	
 	
 	boolean showLog;
 	
@@ -49,7 +48,17 @@ public class NWXConfig {
    */
   String prefix = "";
   
-  public String getHostname() {
+  
+  
+  	@Override
+	public String toString() {
+		return "NWXConfig [showLog=" + showLog + ", scheme=" + scheme + ", hostname=" + hostname + ", port=" + port
+				+ ", defaultPollingTimeout=" + defaultPollingTimeout + ", defaultPollingInterval=" + defaultPollingInterval
+				+ ", webCallback=" + webCallback + ", readTimeout=" + readTimeout + ", writeTimeout=" + writeTimeout
+				+ ", prefix=" + prefix + "]";
+	}
+
+  	public String getHostname() {
     return this.hostname;
   }
   
@@ -119,7 +128,8 @@ public class NWXConfig {
     }
     
     public NWXConfig build() {
-      return this.config;
+    	System.out.println("get global config: "+ this.config.toString());
+    	return this.config;
     }
   }
 }

@@ -4,32 +4,27 @@ import com.alibaba.fastjson.JSON;
 
 import cn.com.nexwise.sdk.common.QueryTask;
 import cn.com.nexwise.sdk.common.RestInfo;
-import cn.com.nexwise.sdk.common.dto.ApiRequest;
+import cn.com.nexwise.sdk.common.dto.AccessTokenResult;
 import cn.com.nexwise.sdk.common.dto.ApiResult;
-import cn.com.nexwise.sdk.common.dto.TaskResult;
+import cn.com.nexwise.sdk.common.dto.RefreshAccessTokenReq;
 
-/**
- * 查询任务的完成情况
- * @author GDJC
- *
- */
-public class QueryTaskInfoTask extends QueryTask<TaskResult> {
+public class RefreshAccessTokenTask extends QueryTask<AccessTokenResult>{
 	
 	
-  public QueryTaskInfoTask(ApiRequest req) {
+  public RefreshAccessTokenTask(RefreshAccessTokenReq req) {
 		super(req);
   }
   
-  @Override
   protected RestInfo initRestInfo() {
     RestInfo info = new RestInfo();
     info.setHttpMethod("GET");
-    info.setPath("/api-task/{id}");
+    info.setPath("/refreshAccessToken.do");
     return info;
   }
 
 	@Override
 	protected ApiResult translateResult(String str) {
-		return JSON.parseObject(str,TaskResult.class);
+		return JSON.parseObject(str,AccessTokenResult.class);
 	}
+
 }
